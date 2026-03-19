@@ -1,4 +1,6 @@
+#include <algorithm>
 #include <cmath>
+#include <vector>
 
 #include <allegro5/allegro.h>
 #include <allegro5/allegro_font.h>
@@ -18,7 +20,13 @@
 
 namespace {
     constexpr float PI = 3.14159265358979323846f;
-    constexpr float TAU = 6.28318530717958647692f;
+
+    struct ProjectedVertex {
+        float x = 0.0f;
+        float y = 0.0f;
+        float z = 0.0f;
+        bool valid = false;
+    };
 
     class DemoApp final : public Run::App {
     public:
@@ -45,11 +53,15 @@ namespace {
         void onUpdate(double dt) override {
             updateCamera(static_cast<float>(dt));
             m_cubeAngle += static_cast<float>(dt) * 0.9f;
-            m_squareAngle += static_cast<float>(dt) * 1.6f;
         }
 
         void onRender(const G::Viewport& viewport, double /*alpha*/) override {
-            const ALLEGRO_COLOR white = al_map_rgb(255, 255, 255);
+            const float aspect = (viewport.height > 0)
+                ? static_cast<float>(viewport.width) / static_cast<float>(viewport.height)
+                : 1.0f;
+
+            const M::Matrix4x4 proj = m_camera.projectionMatrix(aspect);
+            const M::Matrix4x4 view = m_camera.viewMatrix();
 
             const M::Quaternion cubeRotation =
                 M::Quaternion::fromAxisAngle(M::Vector3D(0.0f, 1.0f, 0.0f), m_cubeAngle) *
@@ -60,20 +72,77 @@ namespace {
             cubeTransform.rotation = cubeRotation;
             cubeTransform.scale = M::Vector3D(1.0f, 1.0f, 1.0f);
 
-            const G::Mesh worldCube = m_cube.transformed(cubeTransform);
+            const M::Matrix4x4 model = cubeTransform.matrix();
+            const M::Matrix4x4 mvp = proj * view * model;
 
-            for (const auto& tri : worldCube.triangles) {
-                const M::Point3D& a = worldCube.vertices[static_cast<std::size_t>(tri.a)].position;
-                const M::Point3D& b = worldCube.vertices[static_cast<std::size_t>(tri.b)].position;
-                const M::Point3D& c = worldCube.vertices[static_cast<std::size_t>(tri.c)].position;
+            std::vector<ProjectedVertex> projected(m_cube.vertices.size());
+            for (std::size_t i = 0; i < m_cube.vertices.size(); ++i) {
+                const auto& p = m_cube.vertices[i].position;
+                const M::Vector4D clip = mvp * M::Vector4D(p.x, p.y, p.z, 1.0f);
 
-                drawSegment3D(a, b, viewport, white, 2.0f);
-                drawSegment3D(b, c, viewport, white, 2.0f);
-                drawSegment3D(c, a, viewport, white, 2.0f);
+                if (std::fabs(clip.w) < M::EPS || clip.w <= 0.0f) {
+                    projected[i].valid = false;
+                    continue;
+                }
+
+                const float invW = 1.0f / clip.w;
+                const float ndcX = clip.x * invW;
+                const float ndcY = clip.y * invW;
+                const float ndcZ = clip.z * invW;
+
+                projected[i].x = static_cast<float>(viewport.x) + (ndcX + 1.0f) * 0.5f * static_cast<float>(viewport.width);
+                projected[i].y = static_cast<float>(viewport.y) + (1.0f - (ndcY + 1.0f) * 0.5f) * static_cast<float>(viewport.height);
+                projected[i].z = ndcZ;
+                projected[i].valid = true;
             }
 
-            drawPoint3D(M::Point3D(0.0f, 0.0f, 0.0f), viewport, al_map_rgb(255, 255, 255), 4.0f);
-            drawOverlaySquare2D(viewport);
+            struct FaceDraw {
+                int a = 0;
+                int b = 0;
+                int c = 0;
+                float depth = 0.0f;
+            };
+
+            std::vector<FaceDraw> faces;
+            faces.reserve(m_cube.triangles.size());
+
+            for (const auto& tri : m_cube.triangles) {
+                const ProjectedVertex& v0 = projected[static_cast<std::size_t>(tri.a)];
+                const ProjectedVertex& v1 = projected[static_cast<std::size_t>(tri.b)];
+                const ProjectedVertex& v2 = projected[static_cast<std::size_t>(tri.c)];
+                if (!v0.valid || !v1.valid || !v2.valid) {
+                    continue;
+                }
+
+                const float abx = v1.x - v0.x;
+                const float aby = v1.y - v0.y;
+                const float acx = v2.x - v0.x;
+                const float acy = v2.y - v0.y;
+                const float cross = abx * acy - aby * acx;
+                if (cross >= 0.0f) {
+                    continue;
+                }
+
+                faces.push_back(FaceDraw{
+                    tri.a,
+                    tri.b,
+                    tri.c,
+                    (v0.z + v1.z + v2.z) / 3.0f
+                });
+            }
+
+            std::sort(faces.begin(), faces.end(), [](const FaceDraw& lhs, const FaceDraw& rhs) {
+                return lhs.depth > rhs.depth;
+            });
+
+            const ALLEGRO_COLOR white = al_map_rgb(255, 255, 255);
+            for (const auto& face : faces) {
+                const ProjectedVertex& a = projected[static_cast<std::size_t>(face.a)];
+                const ProjectedVertex& b = projected[static_cast<std::size_t>(face.b)];
+                const ProjectedVertex& c = projected[static_cast<std::size_t>(face.c)];
+                al_draw_triangle(a.x, a.y, b.x, b.y, c.x, c.y, white, 2.0f);
+            }
+
             drawHelp(viewport);
         }
 
@@ -81,7 +150,6 @@ namespace {
         G::Mesh m_cube;
         G::Camera3D m_camera;
         float m_cubeAngle = 0.0f;
-        float m_squareAngle = 0.0f;
         ALLEGRO_FONT* m_font = nullptr;
 
         static bool keyDown(int keycode) {
@@ -111,72 +179,13 @@ namespace {
             }
         }
 
-        void drawPoint3D(const M::Point3D& worldPoint,
-                         const G::Viewport& viewport,
-                         ALLEGRO_COLOR color,
-                         float radius) const {
-            G::ScreenPoint3D p;
-            if (G::projectPointToScreen(worldPoint, m_camera, viewport, p)) {
-                al_draw_filled_circle(p.x, p.y, radius, color);
-            }
-        }
-
-        void drawSegment3D(const M::Point3D& a,
-                           const M::Point3D& b,
-                           const G::Viewport& viewport,
-                           ALLEGRO_COLOR color,
-                           float thickness) const {
-            G::ScreenPoint3D pa;
-            G::ScreenPoint3D pb;
-            if (G::projectLineToScreen(a, b, m_camera, viewport, pa, pb)) {
-                al_draw_line(pa.x, pa.y, pb.x, pb.y, color, thickness);
-            }
-        }
-
-        void drawOverlaySquare2D(const G::Viewport& viewport) {
-            const float margin = 110.0f;
-            const float cx = static_cast<float>(viewport.width) - margin;
-            const float cy = margin;
-            const float half = 36.0f;
-
-            struct Corner2D {
-                float x;
-                float y;
-            };
-
-            Corner2D corners[4] = {
-                {-half, -half},
-                { half, -half},
-                { half,  half},
-                {-half,  half}
-            };
-
-            const float c = std::cos(m_squareAngle);
-            const float s = std::sin(m_squareAngle);
-
-            float px[4];
-            float py[4];
-            for (int i = 0; i < 4; ++i) {
-                const float rx = corners[i].x * c - corners[i].y * s;
-                const float ry = corners[i].x * s + corners[i].y * c;
-                px[i] = cx + rx;
-                py[i] = cy + ry;
-            }
-
-            const ALLEGRO_COLOR white = al_map_rgb(255, 255, 255);
-            al_draw_line(px[0], py[0], px[1], py[1], white, 2.0f);
-            al_draw_line(px[1], py[1], px[2], py[2], white, 2.0f);
-            al_draw_line(px[2], py[2], px[3], py[3], white, 2.0f);
-            al_draw_line(px[3], py[3], px[0], py[0], white, 2.0f);
-        }
-
         void drawHelp(const G::Viewport& viewport) {
             if (!m_font) {
                 return;
             }
             const ALLEGRO_COLOR white = al_map_rgb(255, 255, 255);
             al_draw_text(m_font, white, 12.0f, static_cast<float>(viewport.height - 24), 0,
-                         "Move camera: W A S D E Q | 2D square overlay");
+                         "Move camera: W A S D E Q");
         }
     };
 }

@@ -1,4 +1,6 @@
+#include <algorithm>
 #include <cmath>
+#include <vector>
 
 #include <allegro5/allegro.h>
 #include <allegro5/allegro_font.h>
@@ -16,9 +18,87 @@
 #include "G.hpp"
 #include "M.hpp"
 
+bool G::projectPointToScreen(
+    const M::Point3D& worldPoint,
+    const Camera3D& camera,
+    const Viewport& viewport,
+    ScreenPoint3D& out) noexcept {
+    const float aspect = (viewport.height > 0)
+        ? static_cast<float>(viewport.width) / static_cast<float>(viewport.height)
+        : 1.0f;
+
+    const M::Matrix4x4 view = camera.viewMatrix();
+    const M::Matrix4x4 proj = camera.projectionMatrix(aspect);
+
+    const M::Vector4D view4 = view * M::Vector4D(worldPoint.x, worldPoint.y, worldPoint.z, 1.0f);
+    const M::Vector3D viewPoint(view4.x, view4.y, view4.z);
+
+    // Near-plane reject in view space.
+    if (viewPoint.z > -camera.nearPlane) {
+        out.valid = false;
+        return false;
+    }
+
+    return projectViewPointToScreen(viewPoint, proj, viewport, out);
+}
+
+bool G::projectLineToScreen(
+    const M::Point3D& worldA,
+    const M::Point3D& worldB,
+    const Camera3D& camera,
+    const Viewport& viewport,
+    ScreenPoint3D& outA,
+    ScreenPoint3D& outB) noexcept {
+    const float aspect = (viewport.height > 0)
+        ? static_cast<float>(viewport.width) / static_cast<float>(viewport.height)
+        : 1.0f;
+
+    const M::Matrix4x4 view = camera.viewMatrix();
+    const M::Matrix4x4 proj = camera.projectionMatrix(aspect);
+
+    const M::Vector4D a4 = view * M::Vector4D(worldA.x, worldA.y, worldA.z, 1.0f);
+    const M::Vector4D b4 = view * M::Vector4D(worldB.x, worldB.y, worldB.z, 1.0f);
+
+    M::Vector3D aView(a4.x, a4.y, a4.z);
+    M::Vector3D bView(b4.x, b4.y, b4.z);
+
+    if (!clipLineToNearPlaneView(aView, bView, camera.nearPlane)) {
+        outA.valid = false;
+        outB.valid = false;
+        return false;
+    }
+
+    // After near-plane clipping, allow partially off-screen lines.
+    // We only need the projected endpoints to exist.
+    auto projectEndpoint = [&](const M::Vector3D& p, ScreenPoint3D& out) -> bool {
+        const M::Vector4D clip = proj * M::Vector4D(p, 1.0f);
+
+        if (std::fabs(clip.w) < M::EPS || clip.w <= 0.0f) {
+            out.valid = false;
+            return false;
+        }
+
+        const float invW = 1.0f / clip.w;
+        const float ndcX = clip.x * invW;
+        const float ndcY = clip.y * invW;
+        const float ndcZ = clip.z * invW;
+
+        out.x = static_cast<float>(viewport.x) +
+                (ndcX + 1.0f) * 0.5f * static_cast<float>(viewport.width);
+        out.y = static_cast<float>(viewport.y) +
+                (1.0f - (ndcY + 1.0f) * 0.5f) * static_cast<float>(viewport.height);
+        out.z = ndcZ;
+        out.valid = true;
+        return true;
+    };
+
+    const bool okA = projectEndpoint(aView, outA);
+    const bool okB = projectEndpoint(bView, outB);
+
+    return okA && okB;
+}
 namespace {
     constexpr float PI = 3.14159265358979323846f;
-    constexpr float TAU = 6.28318530717958647692f;
 
     class DemoApp final : public Run::App {
     public:
@@ -45,7 +125,6 @@ namespace {
         void onUpdate(double dt) override {
             updateCamera(static_cast<float>(dt));
             m_cubeAngle += static_cast<float>(dt) * 0.9f;
-            m_squareAngle += static_cast<float>(dt) * 1.6f;
         }
 
         void onRender(const G::Viewport& viewport, double /*alpha*/) override {
@@ -73,7 +152,6 @@ namespace {
             }
 
             drawPoint3D(M::Point3D(0.0f, 0.0f, 0.0f), viewport, al_map_rgb(255, 255, 255), 4.0f);
-            drawOverlaySquare2D(viewport);
             drawHelp(viewport);
         }
 
@@ -81,7 +159,6 @@ namespace {
         G::Mesh m_cube;
         G::Camera3D m_camera;
         float m_cubeAngle = 0.0f;
-        float m_squareAngle = 0.0f;
         ALLEGRO_FONT* m_font = nullptr;
 
         static bool keyDown(int keycode) {
@@ -133,50 +210,13 @@ namespace {
             }
         }
 
-        void drawOverlaySquare2D(const G::Viewport& viewport) {
-            const float margin = 110.0f;
-            const float cx = static_cast<float>(viewport.width) - margin;
-            const float cy = margin;
-            const float half = 36.0f;
-
-            struct Corner2D {
-                float x;
-                float y;
-            };
-
-            Corner2D corners[4] = {
-                {-half, -half},
-                { half, -half},
-                { half,  half},
-                {-half,  half}
-            };
-
-            const float c = std::cos(m_squareAngle);
-            const float s = std::sin(m_squareAngle);
-
-            float px[4];
-            float py[4];
-            for (int i = 0; i < 4; ++i) {
-                const float rx = corners[i].x * c - corners[i].y * s;
-                const float ry = corners[i].x * s + corners[i].y * c;
-                px[i] = cx + rx;
-                py[i] = cy + ry;
-            }
-
-            const ALLEGRO_COLOR white = al_map_rgb(255, 255, 255);
-            al_draw_line(px[0], py[0], px[1], py[1], white, 2.0f);
-            al_draw_line(px[1], py[1], px[2], py[2], white, 2.0f);
-            al_draw_line(px[2], py[2], px[3], py[3], white, 2.0f);
-            al_draw_line(px[3], py[3], px[0], py[0], white, 2.0f);
-        }
-
         void drawHelp(const G::Viewport& viewport) {
             if (!m_font) {
                 return;
             }
             const ALLEGRO_COLOR white = al_map_rgb(255, 255, 255);
             al_draw_text(m_font, white, 12.0f, static_cast<float>(viewport.height - 24), 0,
-                         "Move camera: W A S D E Q | 2D square overlay");
+                         "Move camera: W A S D E Q");
         }
     };
 }

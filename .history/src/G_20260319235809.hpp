@@ -642,27 +642,27 @@ namespace G {
         [[nodiscard]] virtual Mesh load(const std::string& path) const = 0;
     };
 
-    struct ScreenPoint3D {
-        float x = 0.0f;
-        float y = 0.0f;
-        float z = 0.0f;
-        bool valid = false;
-    };
-
-    [[nodiscard]] bool projectPointToScreen(
-        const M::Point3D& worldPoint,
-        const Camera3D& camera,
-        const Viewport& viewport,
-        ScreenPoint3D& out) noexcept;
-
-    [[nodiscard]] bool projectLineToScreen(
-        const M::Point3D& worldA,
-        const M::Point3D& worldB,
-        const Camera3D& camera,
-        const Viewport& viewport,
-        ScreenPoint3D& outA,
-        ScreenPoint3D& outB) noexcept;
-
 }
+
+struct ScreenPoint3D {
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    bool valid = false;
+};
+
+[[nodiscard]] bool projectPointToScreen(
+    const M::Point3D& worldPoint,
+    const Camera3D& camera,
+    const Viewport& viewport,
+    ScreenPoint3D& out) noexcept;
+
+[[nodiscard]] bool projectLineToScreen(
+    const M::Point3D& worldA,
+    const M::Point3D& worldB,
+    const Camera3D& camera,
+    const Viewport& viewport,
+    ScreenPoint3D& outA,
+    ScreenPoint3D& outB) noexcept;
 
 #endif

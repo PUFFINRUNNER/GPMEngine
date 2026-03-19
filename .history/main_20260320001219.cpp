@@ -1,4 +1,6 @@
+#include <algorithm>
 #include <cmath>
+#include <vector>
 
 #include <allegro5/allegro.h>
 #include <allegro5/allegro_font.h>
@@ -16,8 +18,20 @@
 #include "G.hpp"
 #include "M.hpp"
 
+#include <cmath>
+
+#include <allegro5/allegro.h>
+#include <allegro5/allegro_font.h>
+#include <allegro5/allegro_keyboard.h>
+#include <allegro5/allegro_primitives.h>
+
+#include "Run.hpp"
+#include "G.hpp"
+#include "M.hpp"
+
 namespace {
     constexpr float PI = 3.14159265358979323846f;
+    constexpr float TAU = 6.28318530717958647692f;
     constexpr float TAU = 6.28318530717958647692f;
 
     class DemoApp final : public Run::App {
@@ -43,8 +57,8 @@ namespace {
         }
 
         void onUpdate(double dt) override {
-            updateCamera(static_cast<float>(dt));
-            m_cubeAngle += static_cast<float>(dt) * 0.9f;
+           m_cubeAngle += static_cast<float>(dt) * 0.9f;
+            m_squareAngle += static_cast<float>(dt) * 1.6f;      m_cubeAngle += static_cast<float>(dt) * 0.9f;
             m_squareAngle += static_cast<float>(dt) * 1.6f;
         }
 
@@ -68,12 +82,11 @@ namespace {
                 const M::Point3D& c = worldCube.vertices[static_cast<std::size_t>(tri.c)].position;
 
                 drawSegment3D(a, b, viewport, white, 2.0f);
-                drawSegment3D(b, c, viewport, white, 2.0f);
-                drawSegment3D(c, a, viewport, white, 2.0f);
-            }
-
-            drawPoint3D(M::Point3D(0.0f, 0.0f, 0.0f), viewport, al_map_rgb(255, 255, 255), 4.0f);
+                drawSegment3D(b, c, drawPoint3D(M::Point3D(0.0f, 0.0f, 0.0f), viewport, al_map_rgb(255, 255, 255), 4.0f);
             drawOverlaySquare2D(viewport);
+            drawHelp(viewport);int3D(M::Point3D(0.0f, 0.0f, 0.0f), viewport, al_map_rgb(255, 255, 255), 4.0f);
+       float m_cubeAngle = 0.0f;
+        float m_squareAngle = 0.0f;viewport);
             drawHelp(viewport);
         }
 
@@ -127,13 +140,7 @@ namespace {
                            ALLEGRO_COLOR color,
                            float thickness) const {
             G::ScreenPoint3D pa;
-            G::ScreenPoint3D pb;
-            if (G::projectLineToScreen(a, b, m_camera, viewport, pa, pb)) {
-                al_draw_line(pa.x, pa.y, pb.x, pb.y, color, thickness);
-            }
-        }
-
-        void drawOverlaySquare2D(const G::Viewport& viewport) {
+            G::ScreenPoivoid drawOverlaySquare2D(const G::Viewport& viewport) {
             const float margin = 110.0f;
             const float cx = static_cast<float>(viewport.width) - margin;
             const float cy = margin;
@@ -170,20 +177,57 @@ namespace {
             al_draw_line(px[3], py[3], px[0], py[0], white, 2.0f);
         }
 
-        void drawHelp(const G::Viewport& viewport) {
+        void drawHelp(const G::Viewport& viewport) {een(a, b, m_camera, viewport, pa, pb)) {
+                al_draw_line(pa.x, pa.y, pb.x, pb.y, color, thickness);
+            }
+        }
+
+        void drawOverlaySquare2D(const G::Viewport& viewport) {
+            const float cx = 110.0f;
+            Move camera: W A S D E Q | 2D square overlay
+            const float half = 36.0f;
+
+            struct Corner2D {
+                float x;
+                float y;
+            };
+
+            Corner2D corners[4] = {
+                {-half, -half},
+                { half, -half},
+                { half,  half},
+                {-half,  half}
+            };
+
+            const float c = std::cos(m_squareAngle);
+            const float s = std::sin(m_squareAngle);
+
+            float px[4];
+            float py[4];
+            for (int i = 0; i < 4; ++i) {
+                const float rx = corners[i].x * c - corners[i].y * s;
+                const float ry = corners[i].x * s + corners[i].y * c;
+                px[i] = cx + rx;
+                py[i] = cy + ry;
+            }
+
+            const ALLEGRO_COLOR white = al_map_rgb(255, 255, 255);
+            al_draw_line(px[0], py[0], px[1], py[1], white, 2.0f);
+            al_draw_line(px[1], py[1], px[2], py[2], white, 2.0f);
+            al_draw_line(px[2], py[2], px[3], py[3], white, 2.0f);
+            al_draw_line(px[3], py[3], px[0], py[0], white, 2.0f);
             if (!m_font) {
                 return;
             }
             const ALLEGRO_COLOR white = al_map_rgb(255, 255, 255);
             al_draw_text(m_font, white, 12.0f, static_cast<float>(viewport.height - 24), 0,
-                         "Move camera: W A S D E Q | 2D square overlay");
+                         "Move camera: W A S D E Q");
         }
     };
 }
 
 int main() {
-    Run::Config cfg;
-    cfg.title = "Rotating Cube";
+   g.title = "Rotating Cube";
     cfg.startupResolution = Run::Resolution(1280, 720);
     cfg.targetFps = 144.0;
     cfg.fixedPhysicsHz = 60.0;

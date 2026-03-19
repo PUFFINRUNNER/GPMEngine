@@ -1,4 +1,6 @@
+#include <algorithm>
 #include <cmath>
+#include <vector>
 
 #include <allegro5/allegro.h>
 #include <allegro5/allegro_font.h>
@@ -18,7 +20,6 @@
 
 namespace {
     constexpr float PI = 3.14159265358979323846f;
-    constexpr float TAU = 6.28318530717958647692f;
 
     class DemoApp final : public Run::App {
     public:
@@ -45,7 +46,6 @@ namespace {
         void onUpdate(double dt) override {
             updateCamera(static_cast<float>(dt));
             m_cubeAngle += static_cast<float>(dt) * 0.9f;
-            m_squareAngle += static_cast<float>(dt) * 1.6f;
         }
 
         void onRender(const G::Viewport& viewport, double /*alpha*/) override {
@@ -73,7 +73,6 @@ namespace {
             }
 
             drawPoint3D(M::Point3D(0.0f, 0.0f, 0.0f), viewport, al_map_rgb(255, 255, 255), 4.0f);
-            drawOverlaySquare2D(viewport);
             drawHelp(viewport);
         }
 
@@ -81,7 +80,6 @@ namespace {
         G::Mesh m_cube;
         G::Camera3D m_camera;
         float m_cubeAngle = 0.0f;
-        float m_squareAngle = 0.0f;
         ALLEGRO_FONT* m_font = nullptr;
 
         static bool keyDown(int keycode) {
@@ -133,50 +131,13 @@ namespace {
             }
         }
 
-        void drawOverlaySquare2D(const G::Viewport& viewport) {
-            const float margin = 110.0f;
-            const float cx = static_cast<float>(viewport.width) - margin;
-            const float cy = margin;
-            const float half = 36.0f;
-
-            struct Corner2D {
-                float x;
-                float y;
-            };
-
-            Corner2D corners[4] = {
-                {-half, -half},
-                { half, -half},
-                { half,  half},
-                {-half,  half}
-            };
-
-            const float c = std::cos(m_squareAngle);
-            const float s = std::sin(m_squareAngle);
-
-            float px[4];
-            float py[4];
-            for (int i = 0; i < 4; ++i) {
-                const float rx = corners[i].x * c - corners[i].y * s;
-                const float ry = corners[i].x * s + corners[i].y * c;
-                px[i] = cx + rx;
-                py[i] = cy + ry;
-            }
-
-            const ALLEGRO_COLOR white = al_map_rgb(255, 255, 255);
-            al_draw_line(px[0], py[0], px[1], py[1], white, 2.0f);
-            al_draw_line(px[1], py[1], px[2], py[2], white, 2.0f);
-            al_draw_line(px[2], py[2], px[3], py[3], white, 2.0f);
-            al_draw_line(px[3], py[3], px[0], py[0], white, 2.0f);
-        }
-
         void drawHelp(const G::Viewport& viewport) {
             if (!m_font) {
                 return;
             }
             const ALLEGRO_COLOR white = al_map_rgb(255, 255, 255);
             al_draw_text(m_font, white, 12.0f, static_cast<float>(viewport.height - 24), 0,
-                         "Move camera: W A S D E Q | 2D square overlay");
+                         "Move camera: W A S D E Q");
         }
     };
 }

@@ -910,9 +910,7 @@ void recomputeSmoothNormals(Mesh& mesh) noexcept {
         return out.valid;
     }
 
-}
-
-bool G::projectPointToScreen(
+    bool G::projectPointToScreen(
     const M::Point3D& worldPoint,
     const Camera3D& camera,
     const Viewport& viewport,
@@ -990,4 +988,6 @@ bool G::projectLineToScreen(
     const bool okB = projectEndpoint(bView, outB);
 
     return okA && okB;
+}
+
 }

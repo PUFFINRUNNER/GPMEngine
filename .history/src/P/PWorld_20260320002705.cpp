@@ -1,0 +1,506 @@
+#include "PWorld.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <utility>
+
+#include "PQuery.hpp"
+
+namespace {
+    [[nodiscard]] float clampMagnitude(float value, float maxAbs) noexcept {
+        if (value > maxAbs) return maxAbs;
+        if (value < -maxAbs) return -maxAbs;
+        return value;
+    }
+
+    [[nodiscard]] M::Vector3D clampVectorMagnitude(const M::Vector3D& v, float maxMag) noexcept {
+        const float mag2 = v.magnitudeSqr();
+        if (mag2 <= maxMag * maxMag || mag2 <= M::EPS) {
+            return v;
+        }
+        return v.normalized() * maxMag;
+    }
+
+    [[nodiscard]] M::Point3D transformPoint(const M::Transform3D& t, const M::Point3D& p) noexcept {
+        const M::Vector3D scaled(
+            p.x * t.scale.x,
+            p.y * t.scale.y,
+            p.z * t.scale.z
+        );
+        return t.position + t.rotation.rotatedVector(scaled);
+    }
+
+    [[nodiscard]] M::Vector3D transformVector(const M::Transform3D& t, const M::Vector3D& v) noexcept {
+        const M::Vector3D scaled(
+            v.x * t.scale.x,
+            v.y * t.scale.y,
+            v.z * t.scale.z
+        );
+        return t.rotation.rotatedVector(scaled);
+    }
+
+    [[nodiscard]] float maxAbsScaleComponent(const M::Vector3D& s) noexcept {
+        return std::max(std::max(std::fabs(s.x), std::fabs(s.y)), std::fabs(s.z));
+    }
+
+    [[nodiscard]] M::Point3D supportPointBox(const P::BoxCollider& box,
+                                             const M::Transform3D& t,
+                                             const M::Vector3D& dir) noexcept {
+        const M::Vector3D he(
+            std::fabs(box.halfExtents.x * t.scale.x),
+            std::fabs(box.halfExtents.y * t.scale.y),
+            std::fabs(box.halfExtents.z * t.scale.z)
+        );
+
+        const M::Point3D local(
+            (dir.x >= 0.0f) ? he.x : -he.x,
+            (dir.y >= 0.0f) ? he.y : -he.y,
+            (dir.z >= 0.0f) ? he.z : -he.z
+        );
+
+        return transformPoint(t, local);
+    }
+}
+
+namespace P {
+
+    World::World()
+        : World(WorldSettings{}) {
+    }
+
+    World::World(const WorldSettings& ws)
+        : settings(ws),
+          broadPhase(std::make_unique<BruteForceBroadPhase>()),
+          solver(std::make_unique<SequentialImpulseSolver>()) {
+    }
+
+    RigidBody* World::createBody() {
+        auto body = std::make_unique<RigidBody>();
+        body->id = static_cast<std::uint32_t>(bodies.size() + 1u);
+        RigidBody* raw = body.get();
+        bodies.push_back(std::move(body));
+        return raw;
+    }
+
+    Fixture* World::createFixture(RigidBody* body, ColliderPtr collider) {
+        auto fixture = std::make_unique<Fixture>();
+        fixture->id = static_cast<std::uint32_t>(fixtures.size() + 1u);
+        fixture->body = body;
+        fixture->collider = std::move(collider);
+        fixture->collisionGroup = 1u;
+
+        auto& lt = fixture->localTransform;
+        lt.position = M::Point3D(0.0f, 0.0f, 0.0f);
+        lt.rotation = M::Quaternion::identity();
+        lt.scale = M::Vector3D(1.0f, 1.0f, 1.0f);
+
+        Fixture* raw = fixture.get();
+        fixtures.push_back(std::move(fixture));
+
+        if (body && raw->collider && body->isDynamic()) {
+            body->setInertiaTensor(raw->collider->computeLocalInertiaTensor(body->mass));
+        }
+
+        return raw;
+    }
+
+    void World::clear() noexcept {
+        bodies.clear();
+        fixtures.clear();
+        broadPhasePairs.clear();
+        manifolds.clear();
+        constraints.clear();
+
+        if (broadPhase) {
+            broadPhase->clear();
+        }
+    }
+
+    void World::step(float dt) {
+        if (dt <= 0.0f) {
+            return;
+        }
+
+        integrateForces(dt);
+        buildBroadPhase();
+        buildManifolds();
+        buildConstraints();
+        solveConstraints(dt);
+        integrateVelocities(dt);
+        clearAccumulators();
+    }
+
+    void World::integrateForces(float dt) noexcept {
+        for (auto& bodyPtr : bodies) {
+            if (!bodyPtr) {
+                continue;
+            }
+
+            RigidBody& body = *bodyPtr;
+            if (!body.isDynamic() || !body.awake) {
+                continue;
+            }
+
+            if (body.useGravity) {
+                body.linearVelocity += settings.gravity * dt;
+            }
+
+            if (body.invMass > M::EPS) {
+                body.linearVelocity += body.forceAccum * (body.invMass * dt);
+            }
+
+            if (body.allowRotation) {
+                body.angularVelocity += body.invInertiaLocal * (body.torqueAccum * dt);
+            }
+
+            body.linearVelocity *= std::max(0.0f, 1.0f - body.linearDamping * dt);
+            body.angularVelocity *= std::max(0.0f, 1.0f - body.angularDamping * dt);
+
+            body.linearVelocity = clampVectorMagnitude(body.linearVelocity, settings.maxLinearSpeed);
+            body.angularVelocity = clampVectorMagnitude(body.angularVelocity, settings.maxAngularSpeed);
+        }
+    }
+
+    void World::integrateVelocities(float dt) noexcept {
+        for (auto& bodyPtr : bodies) {
+            if (!bodyPtr) {
+                continue;
+            }
+
+            RigidBody& body = *bodyPtr;
+            if (!body.awake) {
+                continue;
+            }
+
+            if (body.isDynamic() || body.isKinematic()) {
+                body.position += body.linearVelocity * dt;
+
+                if (body.allowRotation) {
+                    const M::Vector3D w = body.angularVelocity;
+                    if (w.magnitudeSqr() > M::EPS) {
+                        const M::Quaternion omega(w.x, w.y, w.z, 0.0f);
+                        M::Quaternion dq = omega * body.rotation;
+                        dq *= 0.5f * dt;
+                        body.rotation += dq;
+                        body.rotation.normalize();
+                    }
+                }
+            }
+        }
+    }
+
+    void World::buildBroadPhase() {
+        broadPhasePairs.clear();
+
+        if (!settings.enableBroadPhase || !broadPhase) {
+            return;
+        }
+
+        std::vector<Fixture*> activeFixtures;
+        activeFixtures.reserve(fixtures.size());
+
+        for (auto& fixturePtr : fixtures) {
+            if (!fixturePtr) {
+                continue;
+            }
+            if (!fixturePtr->enabled || !fixturePtr->valid()) {
+                continue;
+            }
+            activeFixtures.push_back(fixturePtr.get());
+        }
+
+        broadPhase->build(activeFixtures);
+        broadPhasePairs = broadPhase->computePairs();
+    }
+
+    void World::buildManifolds() {
+        manifolds.clear();
+        manifolds.reserve(broadPhasePairs.size());
+
+        for (const auto& pair : broadPhasePairs) {
+            if (!pair.valid()) {
+                continue;
+            }
+
+            ContactManifold manifold = collide(*pair.a, *pair.b);
+            if (manifold.valid()) {
+                manifolds.push_back(manifold);
+            }
+        }
+    }
+
+    void World::buildConstraints() {
+        constraints.clear();
+        constraints.reserve(manifolds.size());
+
+        for (const auto& manifold : manifolds) {
+            if (!manifold.valid()) {
+                continue;
+            }
+
+            ContactConstraint constraint;
+            constraint.manifold = manifold;
+
+            const Fixture* fa = manifold.a;
+            const Fixture* fb = manifold.b;
+
+            const float ra = fa ? fa->material.restitution : 0.0f;
+            const float rb = fb ? fb->material.restitution : 0.0f;
+            const float sfa = fa ? fa->material.staticFriction : 0.0f;
+            const float sfb = fb ? fb->material.staticFriction : 0.0f;
+            const float dfa = fa ? fa->material.dynamicFriction : 0.0f;
+            const float dfb = fb ? fb->material.dynamicFriction : 0.0f;
+
+            constraint.combinedRestitution = std::max(ra, rb);
+            constraint.combinedStaticFriction = std::sqrt(std::max(0.0f, sfa * sfb));
+            constraint.combinedDynamicFriction = std::sqrt(std::max(0.0f, dfa * dfb));
+
+            constraints.push_back(constraint);
+        }
+    }
+
+    void World::solveConstraints(float dt) {
+        if (!solver) {
+            return;
+        }
+        solver->solve(*this, constraints, dt, settings.solver);
+    }
+
+    void World::clearAccumulators() noexcept {
+        for (auto& bodyPtr : bodies) {
+            if (bodyPtr) {
+                bodyPtr->clearAccumulators();
+            }
+        }
+    }
+
+    ContactManifold collide(Fixture& a, Fixture& b) noexcept {
+        const ShapeType ta = a.collider->type();
+        const ShapeType tb = b.collider->type();
+
+        if (ta == ShapeType::Sphere && tb == ShapeType::Sphere) {
+            return collideSphereSphere(a, b);
+        }
+
+        if (ta == ShapeType::Sphere && tb == ShapeType::Plane) {
+            return collideSpherePlane(a, b);
+        }
+
+        if (ta == ShapeType::Plane && tb == ShapeType::Sphere) {
+            ContactManifold m = collideSpherePlane(b, a);
+            if (m.valid()) {
+                std::swap(m.a, m.b);
+                m.normal.negate();
+                for (int i = 0; i < m.pointCount; ++i) {
+                    m.points[static_cast<std::size_t>(i)].normal.negate();
+                }
+            }
+            return m;
+        }
+
+        if (ta == ShapeType::Box && tb == ShapeType::Plane) {
+            return collideBoxPlane(a, b);
+        }
+
+        if (ta == ShapeType::Plane && tb == ShapeType::Box) {
+            ContactManifold m = collideBoxPlane(b, a);
+            if (m.valid()) {
+                std::swap(m.a, m.b);
+                m.normal.negate();
+                for (int i = 0; i < m.pointCount; ++i) {
+                    m.points[static_cast<std::size_t>(i)].normal.negate();
+                }
+            }
+            return m;
+        }
+
+        if (ta == ShapeType::Box && tb == ShapeType::Box) {
+            return collideBoxBox(a, b);
+        }
+
+        return ContactManifold{};
+    }
+
+    ContactManifold collideSphereSphere(Fixture& a, Fixture& b) noexcept {
+        ContactManifold manifold{};
+
+        auto* sa = dynamic_cast<SphereCollider*>(a.collider.get());
+        auto* sb = dynamic_cast<SphereCollider*>(b.collider.get());
+        if (!sa || !sb) {
+            return manifold;
+        }
+
+        const M::Transform3D ta = a.worldTransform();
+        const M::Transform3D tb = b.worldTransform();
+
+        const M::Point3D ca = ta.position;
+        const M::Point3D cb = tb.position;
+
+        const float ra = sa->radius * maxAbsScaleComponent(ta.scale);
+        const float rb = sb->radius * maxAbsScaleComponent(tb.scale);
+
+        const M::Vector3D delta = cb - ca;
+        const float dist2 = delta.magnitudeSqr();
+        const float rsum = ra + rb;
+
+        if (dist2 > rsum * rsum) {
+            return manifold;
+        }
+
+        const float dist = std::sqrt(std::max(0.0f, dist2));
+        M::Vector3D normal(1.0f, 0.0f, 0.0f);
+        if (dist > M::EPS) {
+            normal = delta / dist;
+        }
+
+        manifold.a = &a;
+        manifold.b = &b;
+        manifold.normal = normal;
+        manifold.pointCount = 1;
+        manifold.points[0].normal = normal;
+        manifold.points[0].penetration = rsum - dist;
+        manifold.points[0].position = ca + normal * (ra - 0.5f * manifold.points[0].penetration);
+
+        return manifold;
+    }
+
+    ContactManifold collideSpherePlane(Fixture& sphereFixture,
+                                       Fixture& planeFixture) noexcept {
+        ContactManifold manifold{};
+
+        auto* sphere = dynamic_cast<SphereCollider*>(sphereFixture.collider.get());
+        auto* plane = dynamic_cast<PlaneCollider*>(planeFixture.collider.get());
+        if (!sphere || !plane) {
+            return manifold;
+        }
+
+        const M::Transform3D ts = sphereFixture.worldTransform();
+        const M::Transform3D tp = planeFixture.worldTransform();
+
+        const float radius = sphere->radius * maxAbsScaleComponent(ts.scale);
+
+        const M::Point3D planePoint = transformPoint(tp, M::Point3D(
+            plane->plane.normal.x * (-plane->plane.d),
+            plane->plane.normal.y * (-plane->plane.d),
+            plane->plane.normal.z * (-plane->plane.d)
+        ));
+        M::Vector3D planeNormal = transformVector(tp, plane->plane.normal).normalized();
+
+        const float signedDistance = planeNormal.dot(ts.position - planePoint);
+        if (signedDistance > radius) {
+            return manifold;
+        }
+
+        manifold.a = &sphereFixture;
+        manifold.b = &planeFixture;
+        manifold.normal = planeNormal;
+        manifold.pointCount = 1;
+        manifold.points[0].normal = planeNormal;
+        manifold.points[0].penetration = radius - signedDistance;
+        manifold.points[0].position = ts.position - planeNormal * signedDistance;
+
+        return manifold;
+    }
+
+    ContactManifold collideBoxPlane(Fixture& boxFixture,
+                                    Fixture& planeFixture) noexcept {
+        ContactManifold manifold{};
+
+        auto* box = dynamic_cast<BoxCollider*>(boxFixture.collider.get());
+        auto* plane = dynamic_cast<PlaneCollider*>(planeFixture.collider.get());
+        if (!box || !plane) {
+            return manifold;
+        }
+
+        const M::Transform3D tb = boxFixture.worldTransform();
+        const M::Transform3D tp = planeFixture.worldTransform();
+
+        const M::Point3D planePoint = transformPoint(tp, M::Point3D(
+            plane->plane.normal.x * (-plane->plane.d),
+            plane->plane.normal.y * (-plane->plane.d),
+            plane->plane.normal.z * (-plane->plane.d)
+        ));
+        const M::Vector3D planeNormal = transformVector(tp, plane->plane.normal).normalized();
+
+        const M::Point3D deepest = supportPointBox(*box, tb, -planeNormal);
+        const float signedDistance = planeNormal.dot(deepest - planePoint);
+
+        if (signedDistance > 0.0f) {
+            return manifold;
+        }
+
+        manifold.a = &boxFixture;
+        manifold.b = &planeFixture;
+        manifold.normal = planeNormal;
+        manifold.pointCount = 1;
+        manifold.points[0].normal = planeNormal;
+        manifold.points[0].penetration = -signedDistance;
+        manifold.points[0].position = deepest - planeNormal * signedDistance;
+
+        return manifold;
+    }
+
+    ContactManifold collideBoxBox(Fixture& a, Fixture& b) noexcept {
+        ContactManifold manifold{};
+
+        auto* ba = dynamic_cast<BoxCollider*>(a.collider.get());
+        auto* bb = dynamic_cast<BoxCollider*>(b.collider.get());
+        if (!ba || !bb) {
+            return manifold;
+        }
+
+        const M::AABB3D aa = a.worldAABB();
+        const M::AABB3D ab = b.worldAABB();
+
+        if (!M::intersects(aa, ab)) {
+            return manifold;
+        }
+
+        const float overlapX = std::min(aa.max.x, ab.max.x) - std::max(aa.min.x, ab.min.x);
+        const float overlapY = std::min(aa.max.y, ab.max.y) - std::max(aa.min.y, ab.min.y);
+        const float overlapZ = std::min(aa.max.z, ab.max.z) - std::max(aa.min.z, ab.min.z);
+
+        float penetration = overlapX;
+        M::Vector3D normal(
+            (a.body && b.body && a.body->position.x < b.body->position.x) ? 1.0f : -1.0f,
+            0.0f,
+            0.0f
+        );
+
+        if (overlapY < penetration) {
+            penetration = overlapY;
+            normal = M::Vector3D(
+                0.0f,
+                (a.body && b.body && a.body->position.y < b.body->position.y) ? 1.0f : -1.0f,
+                0.0f
+            );
+        }
+
+        if (overlapZ < penetration) {
+            penetration = overlapZ;
+            normal = M::Vector3D(
+                0.0f,
+                0.0f,
+                (a.body && b.body && a.body->position.z < b.body->position.z) ? 1.0f : -1.0f
+            );
+        }
+
+        manifold.a = &a;
+        manifold.b = &b;
+        manifold.normal = normal;
+        manifold.pointCount = 1;
+        manifold.points[0].normal = normal;
+        manifold.points[0].penetration = penetration;
+
+        const M::Point3D ca = aa.center();
+        const M::Point3D cb = ab.center();
+        manifold.points[0].position = M::Point3D(
+            (ca.x + cb.x) * 0.5f,
+            (ca.y + cb.y) * 0.5f,
+            (ca.z + cb.z) * 0.5f
+        );
+
+        return manifold;
+    }
+
+} // namespace P

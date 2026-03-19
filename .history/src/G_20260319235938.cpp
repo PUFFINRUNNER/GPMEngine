@@ -839,7 +839,7 @@ void recomputeSmoothNormals(Mesh& mesh) noexcept {
     for (auto& v : mesh.vertices) {
         v.normal.normalize();
     }
-}
+
     [[nodiscard]] M::Vector3D lerpVec3(const M::Vector3D& a,
                                        const M::Vector3D& b,
                                        float t) noexcept {
@@ -909,85 +909,8 @@ void recomputeSmoothNormals(Mesh& mesh) noexcept {
                      ndcZ >= -1.0f && ndcZ <= 1.0f);
         return out.valid;
     }
-
 }
 
-bool G::projectPointToScreen(
-    const M::Point3D& worldPoint,
-    const Camera3D& camera,
-    const Viewport& viewport,
-    ScreenPoint3D& out) noexcept {
-    const float aspect = (viewport.height > 0)
-        ? static_cast<float>(viewport.width) / static_cast<float>(viewport.height)
-        : 1.0f;
 
-    const M::Matrix4x4 view = camera.viewMatrix();
-    const M::Matrix4x4 proj = camera.projectionMatrix(aspect);
 
-    const M::Vector4D view4 = view * M::Vector4D(worldPoint.x, worldPoint.y, worldPoint.z, 1.0f);
-    const M::Vector3D viewPoint(view4.x, view4.y, view4.z);
-
-    // Near-plane reject in view space.
-    if (viewPoint.z > -camera.nearPlane) {
-        out.valid = false;
-        return false;
-    }
-
-    return projectViewPointToScreen(viewPoint, proj, viewport, out);
-}
-
-bool G::projectLineToScreen(
-    const M::Point3D& worldA,
-    const M::Point3D& worldB,
-    const Camera3D& camera,
-    const Viewport& viewport,
-    ScreenPoint3D& outA,
-    ScreenPoint3D& outB) noexcept {
-    const float aspect = (viewport.height > 0)
-        ? static_cast<float>(viewport.width) / static_cast<float>(viewport.height)
-        : 1.0f;
-
-    const M::Matrix4x4 view = camera.viewMatrix();
-    const M::Matrix4x4 proj = camera.projectionMatrix(aspect);
-
-    const M::Vector4D a4 = view * M::Vector4D(worldA.x, worldA.y, worldA.z, 1.0f);
-    const M::Vector4D b4 = view * M::Vector4D(worldB.x, worldB.y, worldB.z, 1.0f);
-
-    M::Vector3D aView(a4.x, a4.y, a4.z);
-    M::Vector3D bView(b4.x, b4.y, b4.z);
-
-    if (!clipLineToNearPlaneView(aView, bView, camera.nearPlane)) {
-        outA.valid = false;
-        outB.valid = false;
-        return false;
-    }
-
-    // After near-plane clipping, allow partially off-screen lines.
-    // We only need the projected endpoints to exist.
-    auto projectEndpoint = [&](const M::Vector3D& p, ScreenPoint3D& out) -> bool {
-        const M::Vector4D clip = proj * M::Vector4D(p, 1.0f);
-
-        if (std::fabs(clip.w) < M::EPS || clip.w <= 0.0f) {
-            out.valid = false;
-            return false;
-        }
-
-        const float invW = 1.0f / clip.w;
-        const float ndcX = clip.x * invW;
-        const float ndcY = clip.y * invW;
-        const float ndcZ = clip.z * invW;
-
-        out.x = static_cast<float>(viewport.x) +
-                (ndcX + 1.0f) * 0.5f * static_cast<float>(viewport.width);
-        out.y = static_cast<float>(viewport.y) +
-                (1.0f - (ndcY + 1.0f) * 0.5f) * static_cast<float>(viewport.height);
-        out.z = ndcZ;
-        out.valid = true;
-        return true;
-    };
-
-    const bool okA = projectEndpoint(aView, outA);
-    const bool okB = projectEndpoint(bView, outB);
-
-    return okA && okB;
 }
