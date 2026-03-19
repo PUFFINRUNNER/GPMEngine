@@ -1,4 +1,4 @@
-g++ ./main.cpp src/*.cpp src/P/*.cpp \
+g++ ./main.cpp src/*.cpp src\P\*.cpp \
 -o build/linux/program \
 -std=c++17 \
 -Isrc \

@@ -24,7 +24,6 @@ namespace {
     public:
         DemoApp() {
             m_cubeMesh = G::makeCube(1.5f, 1.5f, 1.5f);
-            m_platformMesh = G::makeCube(10.0f, 1.0f, 3.0f);
 
             m_camera.position = M::Point3D(0.0f, 2.0f, 10.0f);
             m_camera.rotation = M::Quaternion::identity();
@@ -48,12 +47,7 @@ namespace {
 
         void onFixedUpdate(double dt) override {
             if (m_baseBody) {
-                m_platformTime += dt;
-                const float prevX = m_baseBody->position.x;
-                const float newX = m_platformAmplitude * std::sin(static_cast<float>(m_platformTime) * m_platformSpeed);
-                m_baseBody->position.x = newX;
-                m_baseBody->linearVelocity = M::Vector3D(static_cast<float>((newX - prevX) / dt), 0.0f, 0.0f);
-                m_baseBody->angularVelocity = M::Vector3D(0.0f, 0.0f, 0.0f);
+                m_baseBody->angularVelocity = M::Vector3D(0.0f, m_baseAngularSpeed, 0.0f);
             }
 
             m_world.step(static_cast<float>(dt));
@@ -74,10 +68,10 @@ namespace {
             const ALLEGRO_COLOR white = al_map_rgb(255, 255, 255);
 
             if (m_baseBody) {
-                drawMeshFromBody(m_platformMesh, *m_baseBody, viewport, white, 2.0f);
+                drawCubeFromBody(*m_baseBody, viewport, white, 2.0f);
             }
             if (m_dropBody) {
-                drawMeshFromBody(m_cubeMesh, *m_dropBody, viewport, white, 2.0f);
+                drawCubeFromBody(*m_dropBody, viewport, white, 2.0f);
                 drawPoint3D(m_dropBody->position, viewport, white, 4.0f);
             }
 
@@ -87,7 +81,6 @@ namespace {
 
     private:
         G::Mesh m_cubeMesh;
-        G::Mesh m_platformMesh;
         G::Camera3D m_camera;
         ALLEGRO_FONT* m_font = nullptr;
 
@@ -96,9 +89,7 @@ namespace {
         P::RigidBody* m_dropBody = nullptr;
 
         double m_dropTimer = 0.0;
-        double m_platformTime = 0.0;
-        float m_platformAmplitude = 2.5f;
-        float m_platformSpeed = 1.2f;
+        float m_baseAngularSpeed = 0.9f;
         float m_squareAngle = 0.0f;
 
         void setupPhysics() {
@@ -106,7 +97,7 @@ namespace {
             m_baseBody->type = P::BodyType::Kinematic;
             m_baseBody->position = M::Point3D(0.0f, -2.0f, 0.0f);
             m_baseBody->rotation = M::Quaternion::identity();
-            auto baseCollider = std::make_shared<P::BoxCollider>(M::Vector3D(5.0f, 0.5f, 1.5f));
+            auto baseCollider = std::make_shared<P::BoxCollider>(M::Vector3D(0.75f, 0.75f, 0.75f));
             P::Fixture* baseFixture = m_world.createFixture(m_baseBody, baseCollider);
             baseFixture->material.restitution = 0.1f;
             baseFixture->material.staticFriction = 0.8f;
@@ -127,13 +118,19 @@ namespace {
             if (!m_dropBody) {
                 return;
             }
-            m_dropBody->position = M::Point3D(0.0f, 2.5f, 0.0f);
+            m_dropBody->position = M::Point3D(0.0f, 4.5f, 0.0f);
             m_dropBody->rotation = M::Quaternion::identity();
             m_dropBody->linearVelocity = M::Vector3D(0.0f, 0.0f, 0.0f);
             m_dropBody->angularVelocity = M::Vector3D(0.0f, 0.0f, 0.0f);
             m_dropBody->forceAccum = M::Vector3D(0.0f, 0.0f, 0.0f);
             m_dropBody->torqueAccum = M::Vector3D(0.0f, 0.0f, 0.0f);
             m_dropBody->awake = true;
+
+            if (m_baseBody) {
+                m_baseBody->rotation = M::Quaternion::identity();
+                m_baseBody->angularVelocity = M::Vector3D(0.0f, m_baseAngularSpeed, 0.0f);
+                m_baseBody->awake = true;
+            }
         }
 
         static bool keyDown(int keycode) {
@@ -163,18 +160,17 @@ namespace {
             }
         }
 
-        void drawMeshFromBody(const G::Mesh& mesh,
-                              const P::RigidBody& body,
+        void drawCubeFromBody(const P::RigidBody& body,
                               const G::Viewport& viewport,
                               ALLEGRO_COLOR color,
                               float thickness) const {
             const M::Transform3D t = body.transform();
 
-            const G::Mesh worldMesh = mesh.transformed(t);
-            for (const auto& tri : worldMesh.triangles) {
-                const M::Point3D& a = worldMesh.vertices[static_cast<std::size_t>(tri.a)].position;
-                const M::Point3D& b = worldMesh.vertices[static_cast<std::size_t>(tri.b)].position;
-                const M::Point3D& c = worldMesh.vertices[static_cast<std::size_t>(tri.c)].position;
+            const G::Mesh worldCube = m_cubeMesh.transformed(t);
+            for (const auto& tri : worldCube.triangles) {
+                const M::Point3D& a = worldCube.vertices[static_cast<std::size_t>(tri.a)].position;
+                const M::Point3D& b = worldCube.vertices[static_cast<std::size_t>(tri.b)].position;
+                const M::Point3D& c = worldCube.vertices[static_cast<std::size_t>(tri.c)].position;
 
                 drawSegment3D(a, b, viewport, color, thickness);
                 drawSegment3D(b, c, viewport, color, thickness);
@@ -247,7 +243,7 @@ namespace {
             }
             const ALLEGRO_COLOR white = al_map_rgb(255, 255, 255);
             al_draw_text(m_font, white, 12.0f, static_cast<float>(viewport.height - 24), 0,
-                         "Move camera: W A S D E Q | Physics: moving platform, drop resets every 10s");
+                         "Move camera: W A S D E Q | Physics: kinematic rotating base, drop resets every 10s");
         }
     };
 }

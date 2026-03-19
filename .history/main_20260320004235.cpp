@@ -24,7 +24,7 @@ namespace {
     public:
         DemoApp() {
             m_cubeMesh = G::makeCube(1.5f, 1.5f, 1.5f);
-            m_platformMesh = G::makeCube(10.0f, 1.0f, 3.0f);
+            m_platformMesh = G::makeCube(6.0f, 1.0f, 3.0f);
 
             m_camera.position = M::Point3D(0.0f, 2.0f, 10.0f);
             m_camera.rotation = M::Quaternion::identity();
@@ -106,7 +106,7 @@ namespace {
             m_baseBody->type = P::BodyType::Kinematic;
             m_baseBody->position = M::Point3D(0.0f, -2.0f, 0.0f);
             m_baseBody->rotation = M::Quaternion::identity();
-            auto baseCollider = std::make_shared<P::BoxCollider>(M::Vector3D(5.0f, 0.5f, 1.5f));
+            auto baseCollider = std::make_shared<P::BoxCollider>(M::Vector3D(3.0f, 0.5f, 1.5f));
             P::Fixture* baseFixture = m_world.createFixture(m_baseBody, baseCollider);
             baseFixture->material.restitution = 0.1f;
             baseFixture->material.staticFriction = 0.8f;
@@ -134,6 +134,15 @@ namespace {
             m_dropBody->forceAccum = M::Vector3D(0.0f, 0.0f, 0.0f);
             m_dropBody->torqueAccum = M::Vector3D(0.0f, 0.0f, 0.0f);
             m_dropBody->awake = true;
+
+            if (m_baseBody) {
+                m_baseBody->position = M::Point3D(0.0f, -2.0f, 0.0f);
+                m_baseBody->rotation = M::Quaternion::identity();
+                m_baseBody->linearVelocity = M::Vector3D(0.0f, 0.0f, 0.0f);
+                m_baseBody->angularVelocity = M::Vector3D(0.0f, 0.0f, 0.0f);
+                m_baseBody->awake = true;
+                m_platformTime = 0.0;
+            }
         }
 
         static bool keyDown(int keycode) {

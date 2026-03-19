@@ -134,6 +134,15 @@ namespace {
             m_dropBody->forceAccum = M::Vector3D(0.0f, 0.0f, 0.0f);
             m_dropBody->torqueAccum = M::Vector3D(0.0f, 0.0f, 0.0f);
             m_dropBody->awake = true;
+
+            if (m_baseBody) {
+                m_baseBody->position = M::Point3D(0.0f, -2.0f, 0.0f);
+                m_baseBody->rotation = M::Quaternion::identity();
+                m_baseBody->linearVelocity = M::Vector3D(0.0f, 0.0f, 0.0f);
+                m_baseBody->angularVelocity = M::Vector3D(0.0f, 0.0f, 0.0f);
+                m_baseBody->awake = true;
+                m_platformTime = 0.0;
+            }
         }
 
         static bool keyDown(int keycode) {
