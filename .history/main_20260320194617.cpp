@@ -104,7 +104,7 @@ namespace {
         void setupPhysics() {
             m_world.settings.solver.velocityIterations = 10;
             m_world.settings.solver.positionIterations = 2;
-            m_world.settings.solver.baumgarte = 0.01f;
+            m_world.settings.solver.baumgarte = 0.08f;
             m_world.settings.solver.penetrationSlop = 0.02f;
             m_baseBody = m_world.createBody();
             m_baseBody->type = P::BodyType::Kinematic;
@@ -112,7 +112,7 @@ namespace {
             m_baseBody->rotation = M::Quaternion::identity();
             auto baseCollider = std::make_shared<P::BoxCollider>(M::Vector3D(5.0f, 0.5f, 1.5f));
             P::Fixture* baseFixture = m_world.createFixture(m_baseBody, baseCollider);
-            baseFixture->material.restitution = 0.02f;
+            baseFixture->material.restitution = 0.1f;
             baseFixture->material.staticFriction = 5.0f;
             baseFixture->material.dynamicFriction = 4.5f;
 
@@ -122,7 +122,7 @@ namespace {
             m_dropBody->rotation = M::Quaternion::identity();
             auto dropCollider = std::make_shared<P::BoxCollider>(M::Vector3D(0.75f, 0.75f, 0.75f));
             P::Fixture* dropFixture = m_world.createFixture(m_dropBody, dropCollider);
-            dropFixture->material.restitution = 0.01f;
+            dropFixture->material.restitution = 0.05f;
             dropFixture->material.staticFriction = 5.0f;
             dropFixture->material.dynamicFriction = 4.5f;
         }

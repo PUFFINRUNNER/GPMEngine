@@ -104,7 +104,7 @@ namespace {
         void setupPhysics() {
             m_world.settings.solver.velocityIterations = 10;
             m_world.settings.solver.positionIterations = 2;
-            m_world.settings.solver.baumgarte = 0.01f;
+            m_world.settings.solver.baumgarte = 0.08f;
             m_world.settings.solver.penetrationSlop = 0.02f;
             m_baseBody = m_world.createBody();
             m_baseBody->type = P::BodyType::Kinematic;

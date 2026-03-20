@@ -1020,4 +1020,3 @@ bool G::projectLineToScreen(
 
 
 
-//2^10-1
