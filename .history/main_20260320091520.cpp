@@ -114,7 +114,7 @@ namespace {
             P::Fixture* baseFixture = m_world.createFixture(m_baseBody, baseCollider);
             baseFixture->material.restitution = 0.1f;
             baseFixture->material.staticFriction = 0.9f;
-            baseFixture->material.dynamicFriction = 0.7f;
+            baseFixture->material.dynamicFriction = 0.35f;
 
             m_dropBody = m_world.createBody();
             m_dropBody->type = P::BodyType::Dynamic;

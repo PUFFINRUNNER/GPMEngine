@@ -113,8 +113,8 @@ namespace {
             auto baseCollider = std::make_shared<P::BoxCollider>(M::Vector3D(5.0f, 0.5f, 1.5f));
             P::Fixture* baseFixture = m_world.createFixture(m_baseBody, baseCollider);
             baseFixture->material.restitution = 0.1f;
-            baseFixture->material.staticFriction = 0.9f;
-            baseFixture->material.dynamicFriction = 0.7f;
+            baseFixture->material.staticFriction = 0.55f;
+            baseFixture->material.dynamicFriction = 0.35f;
 
             m_dropBody = m_world.createBody();
             m_dropBody->type = P::BodyType::Dynamic;
@@ -123,8 +123,8 @@ namespace {
             auto dropCollider = std::make_shared<P::BoxCollider>(M::Vector3D(0.75f, 0.75f, 0.75f));
             P::Fixture* dropFixture = m_world.createFixture(m_dropBody, dropCollider);
             dropFixture->material.restitution = 0.05f;
-            dropFixture->material.staticFriction = 0.55f;
-            dropFixture->material.dynamicFriction = 0.35f;
+            dropFixture->material.staticFriction = 0.7f;
+            dropFixture->material.dynamicFriction = 0.5f;
         }
 
         void respawnDropCube() {

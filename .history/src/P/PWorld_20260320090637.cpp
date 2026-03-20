@@ -441,136 +441,136 @@ namespace P {
     }
 
     ContactManifold collideBoxBox(Fixture& a, Fixture& b) noexcept {
-        ContactManifold manifold{};
+    ContactManifold manifold{};
 
-        auto* ba = dynamic_cast<BoxCollider*>(a.collider.get());
-        auto* bb = dynamic_cast<BoxCollider*>(b.collider.get());
-        if (!ba || !bb) {
-            return manifold;
-        }
-
-        const M::AABB3D aa = a.worldAABB();
-        const M::AABB3D ab = b.worldAABB();
-
-        if (!M::intersects(aa, ab)) {
-            return manifold;
-        }
-
-        const float ix0 = std::max(aa.min.x, ab.min.x);
-        const float ix1 = std::min(aa.max.x, ab.max.x);
-        const float iy0 = std::max(aa.min.y, ab.min.y);
-        const float iy1 = std::min(aa.max.y, ab.max.y);
-        const float iz0 = std::max(aa.min.z, ab.min.z);
-        const float iz1 = std::min(aa.max.z, ab.max.z);
-
-        const float overlapX = ix1 - ix0;
-        const float overlapY = iy1 - iy0;
-        const float overlapZ = iz1 - iz0;
-
-        if (overlapX <= 0.0f || overlapY <= 0.0f || overlapZ <= 0.0f) {
-            return manifold;
-        }
-
-        float penetration = overlapX;
-        int axis = 0; // 0=x, 1=y, 2=z
-
-        M::Vector3D normal(
-            (a.body && b.body && a.body->position.x < b.body->position.x) ? 1.0f : -1.0f,
-            0.0f,
-            0.0f
-        );
-
-        if (overlapY < penetration) {
-            penetration = overlapY;
-            axis = 1;
-            normal = M::Vector3D(
-                0.0f,
-                (a.body && b.body && a.body->position.y < b.body->position.y) ? 1.0f : -1.0f,
-                0.0f
-            );
-        }
-
-        if (overlapZ < penetration) {
-            penetration = overlapZ;
-            axis = 2;
-            normal = M::Vector3D(
-                0.0f,
-                0.0f,
-                (a.body && b.body && a.body->position.z < b.body->position.z) ? 1.0f : -1.0f
-            );
-        }
-
-        manifold.a = &a;
-        manifold.b = &b;
-        manifold.normal = normal;
-        manifold.pointCount = 0;
-
-        auto pushPoint = [&](const M::Point3D& p, float pointPenetration) {
-            if (manifold.pointCount >= static_cast<int>(manifold.points.size())) {
-                return;
-            }
-
-            // Reject near-duplicate points.
-            for (int i = 0; i < manifold.pointCount; ++i) {
-                const M::Point3D& q = manifold.points[static_cast<std::size_t>(i)].position;
-                if (p.distanceSqrTo(q) < 1.0e-4f) {
-                    return;
-                }
-            }
-
-            ContactPoint& cp = manifold.points[static_cast<std::size_t>(manifold.pointCount)];
-            cp.position = p;
-            cp.normal = normal;
-            cp.penetration = pointPenetration;
-            cp.normalImpulse = 0.0f;
-            cp.tangentImpulse1 = 0.0f;
-            cp.tangentImpulse2 = 0.0f;
-            ++manifold.pointCount;
-        };
-
-        if (axis == 1) {
-            const float py = (normal.y > 0.0f) ? iy0 : iy1;
-
-            pushPoint(M::Point3D(ix0, py, iz0), overlapY);
-            pushPoint(M::Point3D(ix1, py, iz0), overlapY);
-            pushPoint(M::Point3D(ix1, py, iz1), overlapY);
-            pushPoint(M::Point3D(ix0, py, iz1), overlapY);
-
-        } else if (axis == 0) {
-            const float px = (normal.x > 0.0f) ? ix0 : ix1;
-
-            pushPoint(M::Point3D(px, iy0, iz0), overlapX);
-            pushPoint(M::Point3D(px, iy1, iz0), overlapX);
-            pushPoint(M::Point3D(px, iy1, iz1), overlapX);
-            pushPoint(M::Point3D(px, iy0, iz1), overlapX);
-
-        } else {
-            const float pz = (normal.z > 0.0f) ? iz0 : iz1;
-
-            pushPoint(M::Point3D(ix0, iy0, pz), overlapZ);
-            pushPoint(M::Point3D(ix1, iy0, pz), overlapZ);
-            pushPoint(M::Point3D(ix1, iy1, pz), overlapZ);
-            pushPoint(M::Point3D(ix0, iy1, pz), overlapZ);
-        }
-
-        if (manifold.pointCount == 0) {
-            const M::Point3D ca = aa.center();
-            const M::Point3D cb = ab.center();
-
-            manifold.pointCount = 1;
-            manifold.points[0].position = M::Point3D(
-                (ca.x + cb.x) * 0.5f,
-                (ca.y + cb.y) * 0.5f,
-                (ca.z + cb.z) * 0.5f
-            );
-            manifold.points[0].normal = normal;
-            manifold.points[0].penetration = penetration;
-            manifold.points[0].normalImpulse = 0.0f;
-            manifold.points[0].tangentImpulse1 = 0.0f;
-            manifold.points[0].tangentImpulse2 = 0.0f;
-        }
-
+    auto* ba = dynamic_cast<BoxCollider*>(a.collider.get());
+    auto* bb = dynamic_cast<BoxCollider*>(b.collider.get());
+    if (!ba || !bb) {
         return manifold;
     }
+
+    const M::AABB3D aa = a.worldAABB();
+    const M::AABB3D ab = b.worldAABB();
+
+    if (!M::intersects(aa, ab)) {
+        return manifold;
+    }
+
+    const float ix0 = std::max(aa.min.x, ab.min.x);
+    const float ix1 = std::min(aa.max.x, ab.max.x);
+    const float iy0 = std::max(aa.min.y, ab.min.y);
+    const float iy1 = std::min(aa.max.y, ab.max.y);
+    const float iz0 = std::max(aa.min.z, ab.min.z);
+    const float iz1 = std::min(aa.max.z, ab.max.z);
+
+    const float overlapX = ix1 - ix0;
+    const float overlapY = iy1 - iy0;
+    const float overlapZ = iz1 - iz0;
+
+    if (overlapX <= 0.0f || overlapY <= 0.0f || overlapZ <= 0.0f) {
+        return manifold;
+    }
+
+    float penetration = overlapX;
+    int axis = 0; // 0=x, 1=y, 2=z
+
+    M::Vector3D normal(
+        (a.body && b.body && a.body->position.x < b.body->position.x) ? 1.0f : -1.0f,
+        0.0f,
+        0.0f
+    );
+
+    if (overlapY < penetration) {
+        penetration = overlapY;
+        axis = 1;
+        normal = M::Vector3D(
+            0.0f,
+            (a.body && b.body && a.body->position.y < b.body->position.y) ? 1.0f : -1.0f,
+            0.0f
+        );
+    }
+
+    if (overlapZ < penetration) {
+        penetration = overlapZ;
+        axis = 2;
+        normal = M::Vector3D(
+            0.0f,
+            0.0f,
+            (a.body && b.body && a.body->position.z < b.body->position.z) ? 1.0f : -1.0f
+        );
+    }
+
+    manifold.a = &a;
+    manifold.b = &b;
+    manifold.normal = normal;
+    manifold.pointCount = 0;
+
+    auto pushPoint = [&](const M::Point3D& p, float pointPenetration) {
+        if (manifold.pointCount >= static_cast<int>(manifold.points.size())) {
+            return;
+        }
+
+        // Reject near-duplicate points.
+        for (int i = 0; i < manifold.pointCount; ++i) {
+            const M::Point3D& q = manifold.points[static_cast<std::size_t>(i)].position;
+            if (p.distanceSqrTo(q) < 1.0e-4f) {
+                return;
+            }
+        }
+
+        ContactPoint& cp = manifold.points[static_cast<std::size_t>(manifold.pointCount)];
+        cp.position = p;
+        cp.normal = normal;
+        cp.penetration = pointPenetration;
+        cp.normalImpulse = 0.0f;
+        cp.tangentImpulse1 = 0.0f;
+        cp.tangentImpulse2 = 0.0f;
+        ++manifold.pointCount;
+    };
+
+    if (axis == 1) {
+        const float py = (normal.y > 0.0f) ? iy0 : iy1;
+
+        pushPoint(M::Point3D(ix0, py, iz0), overlapY);
+        pushPoint(M::Point3D(ix1, py, iz0), overlapY);
+        pushPoint(M::Point3D(ix1, py, iz1), overlapY);
+        pushPoint(M::Point3D(ix0, py, iz1), overlapY);
+
+    } else if (axis == 0) {
+        const float px = (normal.x > 0.0f) ? ix0 : ix1;
+
+        pushPoint(M::Point3D(px, iy0, iz0), overlapX);
+        pushPoint(M::Point3D(px, iy1, iz0), overlapX);
+        pushPoint(M::Point3D(px, iy1, iz1), overlapX);
+        pushPoint(M::Point3D(px, iy0, iz1), overlapX);
+
+    } else {
+        const float pz = (normal.z > 0.0f) ? iz0 : iz1;
+
+        pushPoint(M::Point3D(ix0, iy0, pz), overlapZ);
+        pushPoint(M::Point3D(ix1, iy0, pz), overlapZ);
+        pushPoint(M::Point3D(ix1, iy1, pz), overlapZ);
+        pushPoint(M::Point3D(ix0, iy1, pz), overlapZ);
+    }
+
+    if (manifold.pointCount == 0) {
+        const M::Point3D ca = aa.center();
+        const M::Point3D cb = ab.center();
+
+        manifold.pointCount = 1;
+        manifold.points[0].position = M::Point3D(
+            (ca.x + cb.x) * 0.5f,
+            (ca.y + cb.y) * 0.5f,
+            (ca.z + cb.z) * 0.5f
+        );
+        manifold.points[0].normal = normal;
+        manifold.points[0].penetration = penetration;
+        manifold.points[0].normalImpulse = 0.0f;
+        manifold.points[0].tangentImpulse1 = 0.0f;
+        manifold.points[0].tangentImpulse2 = 0.0f;
+    }
+
+    return manifold;
+}
 
 } // namespace P

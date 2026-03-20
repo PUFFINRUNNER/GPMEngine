@@ -95,17 +95,18 @@ namespace {
         P::RigidBody* m_baseBody = nullptr;
         P::RigidBody* m_dropBody = nullptr;
 
+        m_world.settings.solver.velocityIterations = 10;
+        m_world.settings.solver.positionIterations = 2;
+        m_world.settings.solver.baumgarte = 0.08f;
+        m_world.settings.solver.penetrationSlop = 0.02f;
+
         double m_dropTimer = 0.0;
         double m_platformTime = 0.0;
-        double m_platformAmplitude = 2.0f;
-        double m_platformSpeed = 0.8f;
+        float m_platformAmplitude = 2.5f;
+        float m_platformSpeed = 1.2f;
         float m_squareAngle = 0.0f;
 
         void setupPhysics() {
-            m_world.settings.solver.velocityIterations = 10;
-            m_world.settings.solver.positionIterations = 2;
-            m_world.settings.solver.baumgarte = 0.08f;
-            m_world.settings.solver.penetrationSlop = 0.02f;
             m_baseBody = m_world.createBody();
             m_baseBody->type = P::BodyType::Kinematic;
             m_baseBody->position = M::Point3D(0.0f, -2.0f, 0.0f);
@@ -113,8 +114,8 @@ namespace {
             auto baseCollider = std::make_shared<P::BoxCollider>(M::Vector3D(5.0f, 0.5f, 1.5f));
             P::Fixture* baseFixture = m_world.createFixture(m_baseBody, baseCollider);
             baseFixture->material.restitution = 0.1f;
-            baseFixture->material.staticFriction = 0.9f;
-            baseFixture->material.dynamicFriction = 0.7f;
+            baseFixture->material.staticFriction = 0.8f;
+            baseFixture->material.dynamicFriction = 0.6f;
 
             m_dropBody = m_world.createBody();
             m_dropBody->type = P::BodyType::Dynamic;
@@ -123,8 +124,8 @@ namespace {
             auto dropCollider = std::make_shared<P::BoxCollider>(M::Vector3D(0.75f, 0.75f, 0.75f));
             P::Fixture* dropFixture = m_world.createFixture(m_dropBody, dropCollider);
             dropFixture->material.restitution = 0.05f;
-            dropFixture->material.staticFriction = 0.55f;
-            dropFixture->material.dynamicFriction = 0.35f;
+            dropFixture->material.staticFriction = 0.7f;
+            dropFixture->material.dynamicFriction = 0.5f;
         }
 
         void respawnDropCube() {

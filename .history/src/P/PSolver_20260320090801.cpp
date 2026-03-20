@@ -232,51 +232,51 @@ namespace {
     }
 
     void positionalCorrection(P::ContactConstraint& constraint,
-                            float baumgarte,
-                            float penetrationSlop) noexcept {
-        P::RigidBody* bodyA = constraint.manifold.a ? constraint.manifold.a->body : nullptr;
-        P::RigidBody* bodyB = constraint.manifold.b ? constraint.manifold.b->body : nullptr;
+                          float baumgarte,
+                          float penetrationSlop) noexcept {
+    P::RigidBody* bodyA = constraint.manifold.a ? constraint.manifold.a->body : nullptr;
+    P::RigidBody* bodyB = constraint.manifold.b ? constraint.manifold.b->body : nullptr;
 
-        const bool dynamicA = bodyA && bodyA->isDynamic();
-        const bool dynamicB = bodyB && bodyB->isDynamic();
+    const bool dynamicA = bodyA && bodyA->isDynamic();
+    const bool dynamicB = bodyB && bodyB->isDynamic();
 
-        if (!dynamicA && !dynamicB) {
-            return;
+    if (!dynamicA && !dynamicB) {
+        return;
+    }
+
+    const M::Vector3D n = constraint.manifold.normal.normalized();
+
+    for (int i = 0; i < constraint.manifold.pointCount; ++i) {
+        const P::ContactPoint& cp = constraint.manifold.points[static_cast<std::size_t>(i)];
+
+        const float depth = std::max(0.0f, cp.penetration - penetrationSlop);
+        if (depth <= 0.0f) {
+            continue;
         }
 
-        const M::Vector3D n = constraint.manifold.normal.normalized();
+        const float invMassA = dynamicA ? bodyA->invMass : 0.0f;
+        const float invMassB = dynamicB ? bodyB->invMass : 0.0f;
+        const float invMassSum = invMassA + invMassB;
 
-        for (int i = 0; i < constraint.manifold.pointCount; ++i) {
-            const P::ContactPoint& cp = constraint.manifold.points[static_cast<std::size_t>(i)];
+        if (invMassSum <= M::EPS) {
+            continue;
+        }
 
-            const float depth = std::max(0.0f, cp.penetration - penetrationSlop);
-            if (depth <= 0.0f) {
-                continue;
-            }
+        // Softer correction than before to reduce twitching.
+        const float correctionScale = (baumgarte * 0.35f * depth) / invMassSum;
+        const M::Vector3D correction = n * correctionScale;
 
-            const float invMassA = dynamicA ? bodyA->invMass : 0.0f;
-            const float invMassB = dynamicB ? bodyB->invMass : 0.0f;
-            const float invMassSum = invMassA + invMassB;
+        if (dynamicA) {
+            bodyA->position -= correction * invMassA;
+            bodyA->awake = true;
+        }
 
-            if (invMassSum <= M::EPS) {
-                continue;
-            }
-
-            // Softer correction than before to reduce twitching.
-            const float correctionScale = (baumgarte * 0.35f * depth) / invMassSum;
-            const M::Vector3D correction = n * correctionScale;
-
-            if (dynamicA) {
-                bodyA->position -= correction * invMassA;
-                bodyA->awake = true;
-            }
-
-            if (dynamicB) {
-                bodyB->position += correction * invMassB;
-                bodyB->awake = true;
-            }
+        if (dynamicB) {
+            bodyB->position += correction * invMassB;
+            bodyB->awake = true;
         }
     }
+}
 }
 
 namespace P {

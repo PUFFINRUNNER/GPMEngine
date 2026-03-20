@@ -17,12 +17,12 @@ namespace {
     }
 
     [[nodiscard]] float combineStaticFriction(float a, float b) noexcept {
-        return std::sqrt(std::max(0.0f, a * b));
-    }
+    return std::sqrt(std::max(0.0f, a * b));
+}
 
-    [[nodiscard]] float combineDynamicFriction(float a, float b) noexcept {
-        return std::sqrt(std::max(0.0f, a * b));
-    }
+[[nodiscard]] float combineDynamicFriction(float a, float b) noexcept {
+    return std::sqrt(std::max(0.0f, a * b));
+}
 
     [[nodiscard]] M::Vector3D computeTangent(const M::Vector3D& v, const M::Vector3D& n) noexcept {
         M::Vector3D t = v - n * v.dot(n);

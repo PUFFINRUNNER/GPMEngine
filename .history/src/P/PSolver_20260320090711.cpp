@@ -25,17 +25,17 @@ namespace {
     }
 
     [[nodiscard]] M::Vector3D computeTangent(const M::Vector3D& v, const M::Vector3D& n) noexcept {
-        M::Vector3D t = v - n * v.dot(n);
-        if (t.magnitudeSqr() > M::EPS) {
-            return t.normalized();
-        }
-
-        // Stable fallback tangent basis if tangential velocity is tiny.
-        if (std::fabs(n.x) < 0.577f) {
-            return n.cross(M::Vector3D(1.0f, 0.0f, 0.0f)).normalized();
-        }
-        return n.cross(M::Vector3D(0.0f, 1.0f, 0.0f)).normalized();
+    M::Vector3D t = v - n * v.dot(n);
+    if (t.magnitudeSqr() > M::EPS) {
+        return t.normalized();
     }
+
+    // Stable fallback tangent basis if tangential velocity is tiny.
+    if (std::fabs(n.x) < 0.577f) {
+        return n.cross(M::Vector3D(1.0f, 0.0f, 0.0f)).normalized();
+    }
+    return n.cross(M::Vector3D(0.0f, 1.0f, 0.0f)).normalized();
+}
 
     [[nodiscard]] M::Vector3D invInertiaWorldMul(const P::RigidBody& body,
                                                  const M::Vector3D& v) noexcept {
@@ -155,16 +155,13 @@ namespace {
     }
 
     void solveVelocityOnePoint(P::ContactConstraint& constraint,
-                            P::ContactPoint& cp,
-                            bool enableFriction,
-                            bool enableRestitution) noexcept {
+                               P::ContactPoint& cp,
+                               bool enableFriction,
+                               bool enableRestitution) noexcept {
         P::RigidBody* bodyA = constraint.manifold.a ? constraint.manifold.a->body : nullptr;
         P::RigidBody* bodyB = constraint.manifold.b ? constraint.manifold.b->body : nullptr;
 
-        const bool activeA = bodyA && (bodyA->isDynamic() || bodyA->isKinematic());
-        const bool activeB = bodyB && (bodyB->isDynamic() || bodyB->isKinematic());
-
-        if (!activeA && !activeB) {
+        if ((!bodyA || !bodyA->isDynamic()) && (!bodyB || !bodyB->isDynamic())) {
             return;
         }
 
@@ -180,21 +177,17 @@ namespace {
         const float vn = rv.dot(n);
 
         float restitution = enableRestitution ? constraint.combinedRestitution : 0.0f;
-        if (vn > -1.0f) {
+        if (vn > -0.5f) {
             restitution = 0.0f;
         }
 
         const float normalMass = computeNormalMass(bodyA, bodyB, ra, rb, n);
         if (normalMass > 0.0f) {
-            float j = -(1.0f + restitution) * vn * normalMass;
-
-            const float oldImpulse = cp.normalImpulse;
-            cp.normalImpulse = std::max(oldImpulse + j, 0.0f);
-            j = cp.normalImpulse - oldImpulse;
-
+            const float j = -(1.0f + restitution) * vn * normalMass;
             if (j > 0.0f) {
                 const M::Vector3D impulse = n * j;
                 applyImpulsePair(bodyA, bodyB, ra, rb, impulse);
+                cp.normalImpulse += j;
             }
         }
 
@@ -204,6 +197,9 @@ namespace {
 
         const M::Vector3D rv2 = relativeVelocityAtPoint(bodyA, bodyB, cp.position);
         const M::Vector3D t = computeTangent(rv2, n);
+        if (t.magnitudeSqr() <= M::EPS) {
+            return;
+        }
 
         const float tangentMass = computeTangentMass(bodyA, bodyB, ra, rb, t);
         if (tangentMass <= 0.0f) {
@@ -213,34 +209,21 @@ namespace {
         const float vt = rv2.dot(t);
         float jt = -vt * tangentMass;
 
-        // Try static friction first.
-        const float maxStatic = constraint.combinedStaticFriction * cp.normalImpulse;
-        float oldTangent = cp.tangentImpulse1;
-        float newTangent = oldTangent + jt;
-
-        if (std::fabs(newTangent) <= maxStatic) {
-            cp.tangentImpulse1 = newTangent;
-            jt = cp.tangentImpulse1 - oldTangent;
-        } else {
-            const float maxDynamic = constraint.combinedDynamicFriction * cp.normalImpulse;
-            cp.tangentImpulse1 = std::clamp(newTangent, -maxDynamic, maxDynamic);
-            jt = cp.tangentImpulse1 - oldTangent;
-        }
+        const float maxFriction = constraint.combinedDynamicFriction * cp.normalImpulse;
+        jt = std::clamp(jt, -maxFriction, maxFriction);
 
         const M::Vector3D frictionImpulse = t * jt;
         applyImpulsePair(bodyA, bodyB, ra, rb, frictionImpulse);
+        cp.tangentImpulse1 += jt;
     }
 
     void positionalCorrection(P::ContactConstraint& constraint,
-                            float baumgarte,
-                            float penetrationSlop) noexcept {
+                              float baumgarte,
+                              float penetrationSlop) noexcept {
         P::RigidBody* bodyA = constraint.manifold.a ? constraint.manifold.a->body : nullptr;
         P::RigidBody* bodyB = constraint.manifold.b ? constraint.manifold.b->body : nullptr;
 
-        const bool dynamicA = bodyA && bodyA->isDynamic();
-        const bool dynamicB = bodyB && bodyB->isDynamic();
-
-        if (!dynamicA && !dynamicB) {
+        if ((!bodyA || !bodyA->isDynamic()) && (!bodyB || !bodyB->isDynamic())) {
             return;
         }
 
@@ -248,30 +231,27 @@ namespace {
 
         for (int i = 0; i < constraint.manifold.pointCount; ++i) {
             const P::ContactPoint& cp = constraint.manifold.points[static_cast<std::size_t>(i)];
-
-            const float depth = std::max(0.0f, cp.penetration - penetrationSlop);
+            const float penetration = cp.penetration;
+            const float depth = clampNonNegative(penetration - penetrationSlop);
             if (depth <= 0.0f) {
                 continue;
             }
 
-            const float invMassA = dynamicA ? bodyA->invMass : 0.0f;
-            const float invMassB = dynamicB ? bodyB->invMass : 0.0f;
+            const float invMassA = (bodyA && bodyA->isDynamic()) ? bodyA->invMass : 0.0f;
+            const float invMassB = (bodyB && bodyB->isDynamic()) ? bodyB->invMass : 0.0f;
             const float invMassSum = invMassA + invMassB;
-
             if (invMassSum <= M::EPS) {
                 continue;
             }
 
-            // Softer correction than before to reduce twitching.
-            const float correctionScale = (baumgarte * 0.35f * depth) / invMassSum;
-            const M::Vector3D correction = n * correctionScale;
+            const M::Vector3D correction = n * ((baumgarte * depth) / invMassSum);
 
-            if (dynamicA) {
+            if (bodyA && bodyA->isDynamic()) {
                 bodyA->position -= correction * invMassA;
                 bodyA->awake = true;
             }
 
-            if (dynamicB) {
+            if (bodyB && bodyB->isDynamic()) {
                 bodyB->position += correction * invMassB;
                 bodyB->awake = true;
             }

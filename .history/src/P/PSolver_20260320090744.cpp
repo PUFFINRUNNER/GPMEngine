@@ -232,15 +232,12 @@ namespace {
     }
 
     void positionalCorrection(P::ContactConstraint& constraint,
-                            float baumgarte,
-                            float penetrationSlop) noexcept {
+                              float baumgarte,
+                              float penetrationSlop) noexcept {
         P::RigidBody* bodyA = constraint.manifold.a ? constraint.manifold.a->body : nullptr;
         P::RigidBody* bodyB = constraint.manifold.b ? constraint.manifold.b->body : nullptr;
 
-        const bool dynamicA = bodyA && bodyA->isDynamic();
-        const bool dynamicB = bodyB && bodyB->isDynamic();
-
-        if (!dynamicA && !dynamicB) {
+        if ((!bodyA || !bodyA->isDynamic()) && (!bodyB || !bodyB->isDynamic())) {
             return;
         }
 
@@ -248,30 +245,27 @@ namespace {
 
         for (int i = 0; i < constraint.manifold.pointCount; ++i) {
             const P::ContactPoint& cp = constraint.manifold.points[static_cast<std::size_t>(i)];
-
-            const float depth = std::max(0.0f, cp.penetration - penetrationSlop);
+            const float penetration = cp.penetration;
+            const float depth = clampNonNegative(penetration - penetrationSlop);
             if (depth <= 0.0f) {
                 continue;
             }
 
-            const float invMassA = dynamicA ? bodyA->invMass : 0.0f;
-            const float invMassB = dynamicB ? bodyB->invMass : 0.0f;
+            const float invMassA = (bodyA && bodyA->isDynamic()) ? bodyA->invMass : 0.0f;
+            const float invMassB = (bodyB && bodyB->isDynamic()) ? bodyB->invMass : 0.0f;
             const float invMassSum = invMassA + invMassB;
-
             if (invMassSum <= M::EPS) {
                 continue;
             }
 
-            // Softer correction than before to reduce twitching.
-            const float correctionScale = (baumgarte * 0.35f * depth) / invMassSum;
-            const M::Vector3D correction = n * correctionScale;
+            const M::Vector3D correction = n * ((baumgarte * depth) / invMassSum);
 
-            if (dynamicA) {
+            if (bodyA && bodyA->isDynamic()) {
                 bodyA->position -= correction * invMassA;
                 bodyA->awake = true;
             }
 
-            if (dynamicB) {
+            if (bodyB && bodyB->isDynamic()) {
                 bodyB->position += correction * invMassB;
                 bodyB->awake = true;
             }
